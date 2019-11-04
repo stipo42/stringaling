@@ -21,10 +21,10 @@ func (s AllReplacer) Replace() (err error) {
 	} else {
 		err = s.replace()
 	}
-	if util.DEBUG {
-		diff := time.Now().UnixNano() - start
-		util.Debug("Replace took %s to execute", util.HumanReadable(diff))
-	}
+
+	diff := time.Now().UnixNano() - start
+	util.Info("Replace took %s to execute", util.HumanReadable(diff))
+
 	return
 }
 

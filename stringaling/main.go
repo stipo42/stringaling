@@ -27,10 +27,9 @@ func main() {
 					var outputFile *os.File
 					outputFile, err = os.Open(outputFileName)
 					if err != nil {
-						util.Error("couldn't open output file %s: %s", outputFileName, err)
 						outputFile, err = os.Create(outputFileName)
 						if err != nil {
-							util.Error("couldn't create output file %s: %s", outputFileName, err)
+							util.Error("couldn't create or open output file %s: %s", outputFileName, err)
 						}
 					}
 					if outputFile != nil {
