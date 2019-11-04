@@ -61,11 +61,14 @@ func main() {
 		}
 		if err != nil {
 			util.Error("error executing %s: %s", cmd, err)
+			os.Exit(2)
 		}
 	} else {
 		util.Error("Please supply a command. ")
 		printHelp()
+		os.Exit(1)
 	}
+	os.Exit(0)
 }
 
 func getDebugFlag() bool {

@@ -3,6 +3,7 @@ package replaceall
 import (
 	"github.com/stipo42/stringaling/internal/util"
 	"io"
+	"time"
 )
 
 type AllReplacer struct {
@@ -14,10 +15,15 @@ type AllReplacer struct {
 }
 
 func (s AllReplacer) Replace() (err error) {
+	start := time.Now().UnixNano()
 	if s.StartToken == s.EndToken {
 		err = s.replaceSameStartEnd()
 	} else {
 		err = s.replace()
+	}
+	if util.DEBUG {
+		diff := time.Now().UnixNano() - start
+		util.Debug("Replace took %s to execute", util.HumanReadable(diff))
 	}
 	return
 }

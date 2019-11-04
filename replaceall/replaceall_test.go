@@ -2,8 +2,15 @@ package replaceall
 
 import (
 	"bytes"
+	"github.com/stipo42/stringaling/internal/util"
+	"os"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	util.DEBUG = true
+	os.Exit(m.Run())
+}
 
 func TestStringalinger_ReplaceAllShort(t *testing.T) {
 	expectedString := "Hello billy CRACKS this"
