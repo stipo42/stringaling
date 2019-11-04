@@ -34,6 +34,7 @@ func (s AllReplacer) replace() (err error) {
 	sct := 0 // Increase every time the consecutively read byte matches that index of the start token, when longer than start token length, depth increases
 	ect := 0 // Increase every time the consecutively read byte matches that index of the end token,   when longer than end   token length, depth decreases
 	skipped := 0
+
 	var rerr error
 	for ; rerr == nil; {
 		_, rerr = s.Reader.Read(chunk)
@@ -45,13 +46,18 @@ func (s AllReplacer) replace() (err error) {
 				err = rerr
 			}
 			// Final chunker check
-			if sct > 0 && noWriteDepth == 0 {
+			if sct > 0 && noWriteDepth == 0 && ect == 0 {
+
 				// Backfill for this miss.
-				s.write([]byte(s.StartToken[0:sct]))
+				tt := s.StartToken[0:sct]
+				util.Debug("final start miss!: %s", tt)
+				s.writeS(tt)
 			}
-			if ect > 0 && noWriteDepth == 0 {
+			if ect > 0 && noWriteDepth == 0 && sct == 0 {
 				// Backfill for this miss.
-				s.write([]byte(s.EndToken[0:ect]))
+				tt := s.EndToken[0:ect]
+				util.Debug("final end miss!: %s", tt)
+				s.writeS(tt)
 			}
 		} else {
 			if noWriteDepth > 0 {
@@ -61,8 +67,12 @@ func (s AllReplacer) replace() (err error) {
 				sct += 1
 			} else if sct > 0 {
 				if noWriteDepth == 0 {
-					// Backfill for this miss.
-					s.write([]byte(s.StartToken[0:sct]))
+					if ect == 0 {
+						// Backfill for this miss if no ect.
+						tt := s.StartToken[0:sct]
+						util.Debug("start miss!: %s", tt)
+						s.writeS(tt)
+					}
 				}
 				sct = 0
 			}
@@ -70,8 +80,12 @@ func (s AllReplacer) replace() (err error) {
 				ect += 1
 			} else if ect > 0 {
 				if noWriteDepth == 0 {
-					// Backfill for this miss.
-					s.write([]byte(s.EndToken[0:ect]))
+					if sct == 0 {
+						// Backfill for this miss if no sct.
+						tt := s.EndToken[0:ect]
+						util.Debug("end miss!: %s", tt)
+						s.writeS(tt)
+					}
 				}
 				ect = 0
 			}
