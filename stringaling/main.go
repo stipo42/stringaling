@@ -90,56 +90,38 @@ func getDebugFlag() bool {
 func getReplaceAllArgs() (startToken string, endToken string, inputFile string, outputFile string, replaceWith string) {
 	args := os.Args[2:]
 	skip := false
-	flaggingDone := false
 	for a, arg := range args {
-		if !flaggingDone {
-			if skip {
-				skip = false
-				continue
-			}
-			isFlag := strings.Index(arg, "-") == 0
-			if isFlag {
-				if arg == "-s" {
-					skip = true
-					startToken = args[a+1]
-					util.Debug("found %s, set to %s", arg, args[a+1])
-					continue
-				} else if arg == "-e" {
-					skip = true
-					endToken = args[a+1]
-					util.Debug("found %s, set to %s", arg, args[a+1])
-					continue
-				} else if arg == "-i" {
-					skip = true
-					inputFile = args[a+1]
-					util.Debug("found %s, set to %s", arg, args[a+1])
-					continue
-				} else if arg == "-o" {
-					skip = true
-					outputFile = args[a+1]
-					util.Debug("found %s, set to %s", arg, args[a+1])
-					continue
-				} else if arg == "-w" {
-					skip = true
-					replaceWith = args[a+1]
-					util.Debug("found %s, set to %s", arg, args[a+1])
-					continue
-				}
-			} else {
-				flaggingDone = true
-			}
+		if skip {
+			skip = false
+			continue
 		}
-		if flaggingDone {
-			if startToken == "" {
-				startToken = arg
-			} else if endToken == "" {
-				endToken = arg
-			} else if inputFile == "" {
-				inputFile = arg
-			} else if outputFile == "" {
-				outputFile = arg
-			} else if replaceWith == "" {
-				replaceWith = arg
+		isFlag := strings.Index(arg, "-") == 0
+		if isFlag {
+			if arg == "-s" {
+				skip = true
+				startToken = args[a+1]
+				util.Debug("found %s, set to %s", arg, args[a+1])
+				continue
+			} else if arg == "-e" {
+				skip = true
+				endToken = args[a+1]
+				util.Debug("found %s, set to %s", arg, args[a+1])
+				continue
+			} else if arg == "-i" {
+				skip = true
+				inputFile = args[a+1]
+				util.Debug("found %s, set to %s", arg, args[a+1])
+				continue
+			} else if arg == "-o" {
+				skip = true
+				outputFile = args[a+1]
+				util.Debug("found %s, set to %s", arg, args[a+1])
+				continue
+			} else if arg == "-w" {
+				skip = true
+				replaceWith = args[a+1]
+				util.Debug("found %s, set to %s", arg, args[a+1])
+				continue
 			}
 		}
 	}
@@ -177,8 +159,7 @@ func printReplaceAllHelp() {
 	fmt.Println("This command does NOT support REGEX and requires strict tokens to be given for marking the beginning and end of replacement.")
 	fmt.Println("This command supports the beginning and end tokens being the same token.")
 	fmt.Println("")
-	fmt.Println("Usage : stringaling replaceall|rall -i INPUTFILE -o OUTPUTFILE -s STARTTOKEN -e ENDTOKEN -w TOKEN")
-	fmt.Println(" or   : stringaling replaceall|rall STARTTOKEN ENDTOKEN INPUTFILE OUTPUTFILE [TOKEN]")
+	fmt.Println("Usage : stringaling replaceall|rall -i INPUTFILE -o OUTPUTFILE -s STARTTOKEN -e ENDTOKEN [-w TOKEN]")
 	fmt.Println("")
 	fmt.Println("Options:")
 	fmt.Println("        -i INPUTFILE  : The file to stringaling process ")
