@@ -3,53 +3,131 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/stipo42/stringaling/combine"
 	"github.com/stipo42/stringaling/internal/util"
 	"github.com/stipo42/stringaling/replaceall"
+	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
+	start := time.Now().UnixNano()
+	var cd int
 	var err error
 	if len(os.Args) > 1 {
 		util.DEBUG = getDebugFlag()
 		cmd := os.Args[1]
 		if cmd == "replaceall" || cmd == "rall" {
-			startToken, endToken, inputFileName, outputFileName, replaceWith := getReplaceAllArgs()
+			startToken, endToken, inputFileName, outputFileName, replaceWith, threads := getReplaceAllArgs()
 
 			if validateArgs(startToken, endToken, inputFileName, outputFileName) {
-				var inputFile *os.File
-				inputFile, err = os.Open(inputFileName)
-				if err != nil {
-					util.Error("couldn't open input file %s: %s", inputFile, err)
-				} else {
-					defer inputFile.Close()
-					var outputFile *os.File
-					outputFile, err = os.Open(outputFileName)
-					if err != nil {
-						outputFile, err = os.Create(outputFileName)
-						if err != nil {
-							util.Error("couldn't create or open output file %s: %s", outputFileName, err)
-						}
-					}
-					if outputFile != nil {
-						defer outputFile.Close()
 
-						//var stats os.FileInfo
-						//stats,err = inputFile.Stat()
-						//
-						//stats.Size()
+				var stats os.FileInfo
+				stats, err = os.Stat(inputFileName)
+				if err != nil {
+					util.Error("couldn't get file stats on input file (%s): %s", inputFileName, err)
+				} else {
+					// Need to determine thread size
+					tSize := stats.Size() / int64(threads)
+
+					confidenceChannel := make(chan bool, threads)
+
+					for i := 0; i < threads; i++ {
+						pOutputFile := fmt.Sprintf("%d_%s", i, outputFileName)
+
 						strgr := replaceall.AllReplacer{
-							Reader:     inputFile,
-							Writer:     outputFile,
 							StartToken: startToken,
 							EndToken:   endToken,
 							Token:      replaceWith,
+							StartAt:    tSize * int64(i),
+							GoUntil:    tSize,
 						}
 
-						err = strgr.Replace()
+						strgr.WriterSpawner = func() (writer io.Writer, err error) {
+							var outputFile *os.File
+							outputFile, err = getCleanFile(pOutputFile)
+							if err != nil {
+								util.Error("[%d]: couldn't create temp partial file (%s): %s", i, pOutputFile, err)
+							}
+							cleanup := func() {
+								err = outputFile.Close()
+								if err != nil {
+									util.Error("[%d]: couldn't close temp output file (%s): %s", i, pOutputFile, err)
+								}
+							}
+							strgr.WriterCleanup = &cleanup
+							return outputFile, err
+						}
+
+						strgr.ReaderSpawner = func() (reader io.Reader, err error) {
+							var inputFile *os.File
+							inputFile, err = os.Open(inputFileName)
+							if err != nil {
+								util.Error("[%d]: couldn't open input file (%s): %s", i, inputFileName, err)
+							}
+							cleanup := func() {
+								err = inputFile.Close()
+								if err != nil {
+									util.Error("[%d]: couldn't close input file: %s", i, err)
+								}
+							}
+							strgr.ReaderCleanup = &cleanup
+							return inputFile, err
+						}
+
+						// Do this in it's own thread
+						go Replace(strgr, confidenceChannel, i)
+
+					}
+					var eb strings.Builder
+					confident := true
+					// Consume
+					for i := 0; i < threads; i++ {
+						c := <-confidenceChannel
+						if !c {
+							confident = false
+						}
+					}
+
+					if eb.Len() > 0 {
+						err = errors.New(eb.String())
+					}
+
+					if err == nil {
+						var outputFile *os.File
+						outputFile, err = getCleanFile(outputFileName)
+						if err == nil {
+
+							defer outputFile.Close()
+							// Combine the files
+							cmbr := combine.StreamCombiner{
+								Output: outputFile,
+								Buffer: 1024,
+							}
+
+							for i := 0; i < threads; i++ {
+								pOutputFile := fmt.Sprintf("%d_%s", i, outputFileName)
+
+								var pFile *os.File
+								pFile, err = getCleanFile(pOutputFile)
+								if err != nil {
+									break
+								}
+								cmbr.Streams = append(cmbr.Streams, pFile)
+							}
+
+							err = cmbr.Combine()
+						}
+					}
+
+					if !confident {
+						util.Info("First round was not confident, going again!")
 					}
 				}
+
 			} else {
 				printReplaceAllHelp()
 			}
@@ -67,7 +145,16 @@ func main() {
 		printHelp()
 		os.Exit(1)
 	}
-	os.Exit(0)
+	util.Info("stringaling took %s to complete", util.HumanReadable(time.Now().UnixNano()-start))
+	os.Exit(cd)
+}
+
+func Replace(r replaceall.AllReplacer, rChan chan bool, id int) {
+	confident, err := r.Replace(id)
+	if err != nil {
+		util.Error("A replacement resulted in an error: %s", err)
+	}
+	rChan <- confident
 }
 
 func getDebugFlag() bool {
@@ -87,7 +174,7 @@ func getDebugFlag() bool {
 // 4: replaceWith
 // OR flagging can be used in any order, taking precedence over direct arguments
 // the next index is then used as the flag value where applicable
-func getReplaceAllArgs() (startToken string, endToken string, inputFile string, outputFile string, replaceWith string) {
+func getReplaceAllArgs() (startToken string, endToken string, inputFile string, outputFile string, replaceWith string, threads int) {
 	args := os.Args[2:]
 	skip := false
 	for a, arg := range args {
@@ -100,30 +187,31 @@ func getReplaceAllArgs() (startToken string, endToken string, inputFile string, 
 			if arg == "-s" {
 				skip = true
 				startToken = args[a+1]
-				util.Debug("found %s, set to %s", arg, args[a+1])
-				continue
 			} else if arg == "-e" {
 				skip = true
 				endToken = args[a+1]
-				util.Debug("found %s, set to %s", arg, args[a+1])
-				continue
 			} else if arg == "-i" {
 				skip = true
 				inputFile = args[a+1]
-				util.Debug("found %s, set to %s", arg, args[a+1])
-				continue
 			} else if arg == "-o" {
 				skip = true
 				outputFile = args[a+1]
-				util.Debug("found %s, set to %s", arg, args[a+1])
-				continue
 			} else if arg == "-w" {
 				skip = true
 				replaceWith = args[a+1]
-				util.Debug("found %s, set to %s", arg, args[a+1])
-				continue
+			} else if arg == "-t" {
+				skip = true
+				var err error
+				threads, err = strconv.Atoi(args[a+1])
+				if err != nil || threads <= 0 {
+					threads = 1
+				}
 			}
+			util.Debug("found %s, set to %s", arg, args[a+1])
 		}
+	}
+	if threads == 0 {
+		threads = 1
 	}
 	return
 }
@@ -167,5 +255,26 @@ func printReplaceAllHelp() {
 	fmt.Println("        -s STARTTOKEN : The token to mark the beginning of replacement. ")
 	fmt.Println("        -e ENDTOKEN   : The token to mark the end of replacement. ")
 	fmt.Println("        -w TOKEN      : The token to replace the marked characters with, if not supplied, defaults to emptystring. ")
+	fmt.Println("        -t THREADS    : (Experimental) The number of threads to split work against. The higher this count, ")
+	fmt.Println("                        the less accurate replacement is, as it is unknown if the start of a thread should be written. ")
+	fmt.Println("                        However, the more threads there are, the faster the program will complete. ")
+	fmt.Println("                        For peak performance, set this to the total number of cores available. ")
 	fmt.Println("")
+}
+
+func getCleanFile(fileName string) (file *os.File, err error) {
+	_, err = os.Stat(fileName)
+	if err == nil {
+		util.Debug("%s exists, deleting it", fileName)
+		rerr := os.Remove(fileName)
+		if rerr != nil {
+			util.Debug("cannot delete %s", fileName)
+		} else {
+			err = errors.New("ok")
+		}
+	}
+	if err != nil {
+		file, err = os.Create(fileName)
+	}
+	return
 }
