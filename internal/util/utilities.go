@@ -1,7 +1,10 @@
 package util
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 )
 
@@ -75,4 +78,29 @@ func unitFormatter(v int64, unit string) string {
 		s += "s"
 	}
 	return s
+}
+
+// GetCleanFile gets a file by fileName, deleting it first if it already exists.
+func GetCleanFile(fileName string) (file *os.File, err error) {
+	_, err = os.Stat(fileName)
+	if err == nil {
+		Debug("%s exists, deleting it", fileName)
+		rerr := os.Remove(fileName)
+		if rerr != nil {
+			Debug("cannot remove %s: %s", fileName, rerr)
+		} else {
+			err = errors.New("ok")
+		}
+	}
+	if err != nil {
+		file, err = os.Create(fileName)
+		if err != nil {
+			Debug("error creating file %s: %s", fileName, err)
+		} else {
+			if runtime.GOOS != "windows" {
+				err = file.Chmod(0777)
+			}
+		}
+	}
+	return
 }

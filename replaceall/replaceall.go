@@ -33,7 +33,16 @@ func (s AllReplacer) Replace(id ...int) (confident bool, err error) {
 	} else {
 		confident, err = s.replace(id...)
 	}
-
+	if s.ReaderCleanup != nil {
+		util.Debug("%d: running reader cleanup", id)
+		c := *s.ReaderCleanup
+		c()
+	}
+	if s.WriterCleanup != nil {
+		util.Debug("%d: running writer cleanup", id)
+		c := *s.WriterCleanup
+		c()
+	}
 	diff := time.Now().UnixNano() - start
 	util.Info("Replace took %s to execute", util.HumanReadable(diff))
 
@@ -141,14 +150,7 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 			}
 		}
 	}
-	if s.ReaderCleanup != nil {
-		c := *s.ReaderCleanup
-		c()
-	}
-	if s.WriterCleanup != nil {
-		c := *s.WriterCleanup
-		c()
-	}
+
 	return
 }
 
@@ -231,14 +233,6 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 		}
 	}
 
-	if s.ReaderCleanup != nil {
-		c := *s.ReaderCleanup
-		c()
-	}
-	if s.WriterCleanup != nil {
-		c := *s.WriterCleanup
-		c()
-	}
 	return
 }
 
