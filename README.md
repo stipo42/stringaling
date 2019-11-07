@@ -9,10 +9,7 @@ but it will get the job done.
 It's important to set expectations for this program/library.
 This does NOT support regex at all, and should only be used for known token replacements.
 
-This can run on a raspberry pi zero, and take all day, but it will run and it will complete. 
-
 ### Usage
-
 The basic usage for all commands is 
 
 ```bash
@@ -29,10 +26,21 @@ This command replaces all text between two tokens (including the tokens) with an
 The syntax of this command is 
 
 ```bash
-$ stringaling replaceall|rall [-v] -i INPUT_FILE -o OUTPUT_FILE -s START_TOKEN -e END_TOKEN [-w TOKEN] 
+$ stringaling replace-all|ra [-v] -i INPUT_FILE -o OUTPUT_FILE -s START_TOKEN -e END_TOKEN [-w TOKEN] [-t THREADS]
 ``` 
 
-The command can either be `replaceall` or `rall` for short.
+The command can either be `replace-all` or `ra` for short.
+
+##### Minimum Requirements 
+ReplaceAll's requirements scale with the size and complexity of the file which the replacement is happening on.
+ReplaceAll keeps an in-memory cache of potentially skipped characters, as it may need to write these characters to the output
+if a replacement never finishes, this is especially an issue when using threading.
+
+That said, the memory needed should never exceed the unit of work.
+So a 200mb file safely needs 200mb of memory to process, however on average, this number can be divided by the number of threads used.
+So a 200mb file on 5 threads likely won't use more than 40mb of memory, but in the worst case, all threads could use 40mb at a time, or 200mb.
+
+In a future release, an option may be given to use a file-based cache instead of memory, which may prove useful for gigantic files (in the GB+ range)
 
 ##### Arguments
 * -i INPUT_FILE 
@@ -45,9 +53,10 @@ The command can either be `replaceall` or `rall` for short.
   * The token to mark the end of replacement
 * -w TOKEN
   * The token to use as a replacement, default is emptystring 
-  
-##### Example
+* -t THREADS
+  * The number of threads to use, defaults to 1, for optimum performance, set this to the number of cores available
 
+##### Example
 Given input file `results.xml`
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -78,7 +87,7 @@ Given input file `results.xml`
 
 We can replace all the phi nodes with nothing :
 ```bash
-$ stringaling replaceall -i results.xml -o clean-results.xml -s '<phi>' -e '<//phi>'
+$ stringaling replaceall -i results.xml -o clean-results.xml -s '<phi>' -e '</phi>'
 ```
 
 Giving us the resulting `clean-results.xml`:
@@ -100,3 +109,22 @@ Giving us the resulting `clean-results.xml`:
 </root>
 ```
 
+#### Combine
+This command combines a set of text files into a single file.
+
+```bash
+$ stringaling combine|c [-v] -f FILE [-f FILE]... -o OUTPUT_FILE [-d]
+``` 
+
+The command can either be `combine` or `c` for short.
+
+##### Minimum Requirements
+You need at least 1mb of free memory to run this command.
+
+##### Arguments
+* -f FILE
+  * A file to combine, this option can be supplied multiple times
+* -o OUTPUT_FILE
+  * The file to write the combination to
+* -d
+  * When supplied, will delete the input files after combination

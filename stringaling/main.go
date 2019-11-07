@@ -22,50 +22,10 @@ func main() {
 	if len(os.Args) > 1 {
 		util.DEBUG = getDebugFlag()
 		cmd := os.Args[1]
-		if cmd == "replaceall" || cmd == "rall" {
-			startToken, endToken, inputFileName, outputFileName, token, threads := getReplaceAllArgs()
-
-			if validateReplaceAllArgs(startToken, endToken, inputFileName, outputFileName) {
-				confident := false
-				useThreads := threads
-				useInputFileName := inputFileName
-				var ct int
-				for ct = 0; ct <= 100; ct++ {
-					useInputFileName, confident, err = replaceAllPass(
-						ct,
-						useInputFileName,
-						outputFileName,
-						startToken,
-						endToken,
-						token,
-						useThreads,
-					)
-					if confident {
-						break
-					} else {
-						if useThreads == 1 {
-							util.Info("not confident after 1 thread, giving up")
-							break
-						} else {
-							useThreads = int(math.Ceil(float64(useThreads) / 2))
-							util.Info("pass %d was not confident, reducing threads to %d and trying again", ct, useThreads)
-						}
-					}
-				}
-				err = os.Rename(useInputFileName, outputFileName)
-				if err != nil {
-					util.Error("couldnt rename %s to %s: %s", useInputFileName, outputFileName, err)
-				}
-				for c := 0; c < ct; c++ {
-					tFileName := getNextTempFile(outputFileName, c)
-					err = os.Remove(tFileName)
-					if err != nil {
-						util.Error("error deleting temp file %s: %s", tFileName, err)
-					}
-				}
-			} else {
-				printReplaceAllHelp()
-			}
+		if cmd == "replace-all" || cmd == "ra" {
+			err = doReplaceAll()
+		} else if cmd == "combine" || cmd == "c" {
+			err = doCombine()
 		} else if cmd == "help" {
 			printHelp()
 		} else {
@@ -82,6 +42,53 @@ func main() {
 	}
 	util.Info("stringaling took %s to complete", util.HumanReadable(time.Now().UnixNano()-start))
 	os.Exit(cd)
+}
+
+func doReplaceAll() (err error) {
+	startToken, endToken, inputFileName, outputFileName, token, threads := getReplaceAllArgs()
+
+	if validateReplaceAllArgs(startToken, endToken, inputFileName, outputFileName) {
+		confident := false
+		useThreads := threads
+		useInputFileName := inputFileName
+		var ct int
+		for ct = 0; ct <= 100; ct++ {
+			useInputFileName, confident, err = replaceAllPass(
+				ct,
+				useInputFileName,
+				outputFileName,
+				startToken,
+				endToken,
+				token,
+				useThreads,
+			)
+			if confident {
+				break
+			} else {
+				if useThreads == 1 {
+					util.Info("not confident after 1 thread, giving up")
+					break
+				} else {
+					useThreads = int(math.Ceil(float64(useThreads) / 2))
+					util.Info("pass %d was not confident, reducing threads to %d and trying again", ct, useThreads)
+				}
+			}
+		}
+		err = os.Rename(useInputFileName, outputFileName)
+		if err != nil {
+			util.Error("couldnt rename %s to %s: %s", useInputFileName, outputFileName, err)
+		}
+		for c := 0; c < ct; c++ {
+			tFileName := getNextTempFile(outputFileName, c)
+			err = os.Remove(tFileName)
+			if err != nil {
+				util.Error("error deleting temp file %s: %s", tFileName, err)
+			}
+		}
+	} else {
+		printReplaceAllHelp()
+	}
+	return
 }
 
 // replaceAllPass executes a single pass of the replaceall function
@@ -157,7 +164,7 @@ func replaceAllPass(
 			}
 
 			// Do this in it's own thread
-			go Replace(strgr, confidenceChannel, i)
+			go replaceWorker(strgr, confidenceChannel, i)
 
 		}
 		var eb strings.Builder
@@ -221,24 +228,14 @@ func getNextTempFile(outputFileName string, pass int) string {
 	return fmt.Sprintf("stringalinger_tmp%d_%s", pass, outputFileName)
 }
 
-// Replace fires off replaceall.AllReplacer r in a new thread, reporting its confidence back to
+// replaceWorker fires off replaceall.AllReplacer r in a new thread, reporting its confidence back to
 // the supplied confidenceChannel reporting on an id
-func Replace(r replaceall.AllReplacer, confidenceChannel chan bool, id int) {
+func replaceWorker(r replaceall.AllReplacer, confidenceChannel chan bool, id int) {
 	confident, err := r.Replace(id)
 	if err != nil {
 		util.Error("[%d]: replacement resulted in an error: %s", id, err)
 	}
 	confidenceChannel <- confident
-}
-
-// getDebugFlag returns true if the verbose flag was supplied
-func getDebugFlag() bool {
-	for _, arg := range os.Args {
-		if arg == "-v" {
-			return true
-		}
-	}
-	return false
 }
 
 // getReplaceAllArgs gets the arguments from the os.Args slice relevant to the replaceall command
@@ -289,19 +286,101 @@ func validateReplaceAllArgs(startToken string, endToken string, inputFile string
 	return inputFile != "" && outputFile != "" && startToken != "" && endToken != ""
 }
 
+func doCombine() (err error) {
+	files, outputFileName, deleteFiles := getCombineArgs()
+	if validateCombineArgs(files, outputFileName) {
+		var outputFile *os.File
+		outputFile, err = getCleanFile(outputFileName)
+		if err == nil {
+			defer outputFile.Close()
+			cmbr := combine.StreamCombiner{
+				Output: outputFile,
+				Buffer: 1024,
+			}
+
+			for i := 0; i < len(files); i++ {
+				var inputFile *os.File
+				inputFile, err = os.Open(files[i])
+				defer inputFile.Close()
+				if err != nil {
+					util.Error("cannot open file %s: %s", files[i], err)
+					break
+				}
+				cmbr.Streams = append(cmbr.Streams, inputFile)
+			}
+
+			err = cmbr.Combine()
+		} else {
+			util.Error("cannot open outputfile %s: %s", outputFileName, err)
+		}
+
+		// Cleanup
+		if deleteFiles {
+			util.Debug("delete flag supplied, deleting input files")
+			for i := 0; i < len(files); i++ {
+				err = os.Remove(files[i])
+				if err != nil {
+					util.Error("error deleteing file: %s", err)
+				}
+			}
+		}
+	} else {
+		printCombineHelp()
+	}
+	return
+}
+
+func getCombineArgs() (files []string, outputFile string, deleteFiles bool) {
+	args := os.Args[2:]
+	skip := false
+	for a, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		isFlag := strings.Index(arg, "-") == 0
+		if isFlag {
+			if arg == "-f" {
+				skip = true
+				files = append(files, args[a+1])
+			} else if arg == "-d" {
+				deleteFiles = true
+			} else if arg == "-o" {
+				skip = true
+				outputFile = args[a+1]
+			}
+		}
+	}
+	return
+}
+
+func validateCombineArgs(files []string, outputFile string) bool {
+	return len(files) > 1 && outputFile != ""
+}
+
+// getDebugFlag returns true if the verbose flag was supplied
+func getDebugFlag() bool {
+	for _, arg := range os.Args {
+		if arg == "-v" {
+			return true
+		}
+	}
+	return false
+}
 func printHelp() {
 	fmt.Println("")
 	fmt.Println("This utility is a streaming string replacement tool.")
 	fmt.Println("Massive amounts of memory are not needed for extremely large files.")
 	fmt.Println("")
-	fmt.Println("Usage : stringaling COMMAND [-v] ...")
+	fmt.Println(fmt.Sprintf("Usage : %s COMMAND [-v] ...", os.Args[0]))
 	fmt.Println("")
 	fmt.Println("Options:")
 	fmt.Println("        COMMAND : A command to perform by stringaling")
 	fmt.Println("        -v      : Verbose output")
 	fmt.Println("")
 	fmt.Println("Available Commands:")
-	fmt.Println("        replaceall, rall - This will replace all characters between two tokens, including those tokens. ")
+	fmt.Println("        replace-all, ra  - This will replace all characters between two tokens, including those tokens. ")
+	fmt.Println("        combine, c       - This will combine a set of files into a single file, in the order provided. ")
 	fmt.Println("        help             - This will show this help screen")
 	fmt.Println("")
 
@@ -315,7 +394,7 @@ func printReplaceAllHelp() {
 	fmt.Println("This command does NOT support REGEX and requires strict tokens to be given for marking the beginning and end of replacement.")
 	fmt.Println("This command supports the beginning and end tokens being the same token.")
 	fmt.Println("")
-	fmt.Println("Usage : stringaling replaceall|rall -i INPUTFILE -o OUTPUTFILE -s STARTTOKEN -e ENDTOKEN [-w TOKEN]")
+	fmt.Println(fmt.Sprintf("Usage : %s replace-all|ra -i INPUTFILE -o OUTPUTFILE -s STARTTOKEN -e ENDTOKEN [-w TOKEN]", os.Args[0]))
 	fmt.Println("")
 	fmt.Println("Options:")
 	fmt.Println("        -i INPUTFILE  : The file to stringaling process ")
@@ -327,6 +406,21 @@ func printReplaceAllHelp() {
 	fmt.Println("                        the less accurate replacement is, as it is unknown if the start of a thread should be written. ")
 	fmt.Println("                        However, the more threads there are, the faster the program will complete. ")
 	fmt.Println("                        For peak performance, set this to the total number of cores available. ")
+	fmt.Println("")
+}
+
+func printCombineHelp() {
+	fmt.Println("")
+	fmt.Println("combine,c - This will combine a set of files into a single file, optionally deleting the originals. ")
+	fmt.Println("")
+	fmt.Println("This command does NOT support REGEX and requires strict filenames, if regex is required it must be used before this command.")
+	fmt.Println("")
+	fmt.Println(fmt.Sprintf("Usage : %s combine|c [-d] -f FILENAME [-f FILENAME]... -o OUTPUTFILE", os.Args[0]))
+	fmt.Println("")
+	fmt.Println("Options:")
+	fmt.Println("        -d            : Deletes the source files when supplied.")
+	fmt.Println("        -f FILENAME   : Adds a file to the combination pool.")
+	fmt.Println("        -o OUTPUTFILE : Sets the name of the file to write the combination to.")
 	fmt.Println("")
 }
 

@@ -19,6 +19,13 @@ type AllReplacer struct {
 	WriterCleanup *func()
 }
 
+// Replace performs the replacement for the configured AllReplacer
+// optionally an id may be supplied for keeping track of threading when
+// output is verbose
+// This function returns a flag representing the confidence that this function
+// caught all the replacements.
+// When the function is not confident it basically means the start and end token count
+// is uneven.
 func (s AllReplacer) Replace(id ...int) (confident bool, err error) {
 	start := time.Now().UnixNano()
 	if s.StartToken == s.EndToken {
@@ -33,14 +40,17 @@ func (s AllReplacer) Replace(id ...int) (confident bool, err error) {
 	return
 }
 
+// SpawnReader will spawn a new io.Reader for the AllReplacer to read from.
 func (s AllReplacer) SpawnReader() (reader io.Reader, err error) {
 	return s.ReaderSpawner()
 }
 
+// SpawnWriter will spawn a new io.Writer for the AllReplacer to write to.
 func (s AllReplacer) SpawnWriter() (writer io.Writer, err error) {
 	return s.WriterSpawner()
 }
 
+// replace is used to replace content between different start and end tokens
 func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 	noWriteDepth := 0 // When not zero, don't write byte to output
 	chunk := make([]byte, 1)
@@ -78,18 +88,6 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 						util.Error("%d: couldn't read chunk: %s", id, rerr)
 						err = rerr
 					}
-					// startBackfill := s.missCheck('\n', noWriteDepth, s.StartToken, &sct, nil, id...)
-					// if len(startBackfill) > 0 {
-					// 	cupdate = removeLastIndexes(cupdate, len(startBackfill))
-					// 	s.write(startBackfill, writer, id...)
-					// }
-					// endBackfill := s.missCheck('\n', noWriteDepth, s.EndToken, &ect, nil, id...)
-					// if len(endBackfill) > 0 {
-					// 	cupdate = removeLastIndexes(cupdate, len(endBackfill))
-					// 	s.write(endBackfill, writer, id...)
-					// }
-					// confident = len(startBackfill) == 0 && len(endBackfill) == 0
-					confident = len(cupdate) == 0 // len(startBackfill) == 0 && len(endBackfill) == 0
 					if len(cupdate) > 0 {
 						s.write(cupdate, writer, id...)
 					}
@@ -110,7 +108,6 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 					if sct >= slen {
 						sct = 0
 						noWriteDepth += 1
-
 					}
 					if ect >= elen {
 						ect = 0
@@ -135,9 +132,7 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 				}
 				if byteCtr >= s.GoUntil {
 					util.Debug("%d: Hit end of byte duty", id)
-					//startBackfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &sct, nil, id...)
-					//endBackfill := s.missCheck(chunk[0], noWriteDepth, s.EndToken, &ect, nil, id...)
-					confident = len(cupdate) == 0 // len(startBackfill) == 0 && len(endBackfill) == 0
+					confident = len(cupdate) == 0
 					if len(cupdate) > 0 {
 						s.write(cupdate, writer, id...)
 					}
@@ -156,6 +151,9 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 	}
 	return
 }
+
+// replaceSameStartEnd is used when the start and end tokens are the same,
+// the logic is slightly different / simplified in this scenario
 func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) {
 	noWriteDepth := 0 // When not zero, don't write byte to output
 	chunk := make([]byte, 1)
@@ -177,7 +175,7 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 	} else {
 		writer, err = s.SpawnWriter()
 		if err != nil {
-			util.Error("could not spawn a writer struct: %s", err)
+			util.Error("%d: could not spawn a writer struct: %s", id, err)
 		} else {
 			rerr := s.fastForward(reader)
 			for rerr == nil {
@@ -186,15 +184,13 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 				byteCtr += int64(b)
 				if rerr != nil {
 					if rerr == io.EOF {
-						util.Debug("End of file: %s", rerr)
+						util.Debug("%d: End of file: %s", id, rerr)
 					} else {
-						util.Error("Couldn't read chunk: %s", rerr)
+						util.Error("%d: Couldn't read chunk: %s", id, rerr)
 						err = rerr
 					}
-					// Final chunker check
-					if ct > 0 && noWriteDepth == 0 {
-						// Backfill for this miss.
-						s.write([]byte(s.StartToken[0:ct]), writer)
+					if len(cupdate) > 0 {
+						s.write(cupdate, writer, id...)
 					}
 				} else {
 					if noWriteDepth > 0 {
@@ -202,8 +198,8 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 					}
 					backfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &ct, nil, id...)
 					if len(backfill) > 0 {
-						s.write(backfill, writer)
 						cupdate = removeLastIndexes(cupdate, len(backfill))
+						s.write(backfill, writer, id...)
 					}
 					if ct >= slen {
 						ct = 0
@@ -211,26 +207,23 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 							noWriteDepth = 1
 						} else if noWriteDepth == 1 {
 							skipped += slen
-							util.Debug("replaced %d bytes", skipped)
-							s.writeS(s.Token, writer)
+							util.Debug("%d: replaced %d bytes", id, skipped)
+							s.writeS(s.Token, writer, id...)
 							cupdate = nil
 							noWriteDepth = 0
 						}
 					} else if noWriteDepth == 0 && ct == 0 {
-						s.write(chunk, writer)
+						s.write(chunk, writer, id...)
 					} else {
+						util.Debug("%d: Appending '%s' to cupdate, noWriteDepth = %d, ct = %d, cupdate = %s", id, string(chunk), noWriteDepth, ct, string(cupdate))
 						cupdate = append(cupdate, chunk[0])
 					}
 				}
 				if byteCtr >= s.GoUntil {
-					util.Debug("Hit end of byte duty")
-					backfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &ct, nil, id...)
-					//if len(backfill) > 0 {
-					//	s.write(backfill, writer)
-					//}
-					confident = len(backfill) == 0
+					util.Debug("%d: Hit end of byte duty", id)
+					confident = len(cupdate) == 0
 					if len(cupdate) > 0 {
-						s.write(cupdate, writer)
+						s.write(cupdate, writer, id...)
 					}
 					break
 				}
