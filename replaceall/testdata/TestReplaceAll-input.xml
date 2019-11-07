@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <test name="my test">
+        <phi>
+            <name>James Franco</name>
+            <ssn>123-45-6789</ssn>
+        </phi>
+        <result>The test passed</result>
+    </test>
+    <test name="my test 2">
+        <phi>
+            <name>Mister T</name>
+            <ssn>123-55-5555</ssn>
+        </phi>
+        <result>The test failed!</result>
+    </test>
+    <test name="my test 3">
+        <phi>
+            <name>Ronald Rump</name>
+            <ssn>666-66-6666</ssn>
+        </phi>
+        <result>The test result is unknown</result>
+    </test>
+</root>

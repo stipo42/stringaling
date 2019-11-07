@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <test name="my test">
+        <redacted></redacted>
+        <result>The test passed</result>
+    </test>
+    <test name="my test 2">
+        <redacted></redacted>
+        <result>The test failed!</result>
+    </test>
+    <test name="my test 3">
+        <redacted></redacted>
+        <result>The test result is unknown</result>
+    </test>
+</root>
