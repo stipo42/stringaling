@@ -1,9 +1,10 @@
 package replaceall
 
 import (
-	"github.com/stipo42/stringaling/internal/util"
 	"io"
 	"time"
+
+	"github.com/stipo42/stringaling/internal/util"
 )
 
 type AllReplacer struct {
@@ -66,7 +67,7 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 			util.Error("%d: could not spawn a writer struct: %s", id, err)
 		} else {
 			rerr := s.fastForward(reader)
-			for ; rerr == nil; {
+			for rerr == nil {
 				var b int
 				b, rerr = reader.Read(chunk)
 				byteCtr += int64(b)
@@ -77,27 +78,33 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 						util.Error("%d: couldn't read chunk: %s", id, rerr)
 						err = rerr
 					}
-					startBackfill := s.missCheck('\n', noWriteDepth, s.StartToken, &sct, nil, id...)
-					if len(startBackfill) > 0 {
-						cupdate = removeLastIndexes(cupdate, len(startBackfill))
-						s.write(startBackfill, writer, id...)
+					// startBackfill := s.missCheck('\n', noWriteDepth, s.StartToken, &sct, nil, id...)
+					// if len(startBackfill) > 0 {
+					// 	cupdate = removeLastIndexes(cupdate, len(startBackfill))
+					// 	s.write(startBackfill, writer, id...)
+					// }
+					// endBackfill := s.missCheck('\n', noWriteDepth, s.EndToken, &ect, nil, id...)
+					// if len(endBackfill) > 0 {
+					// 	cupdate = removeLastIndexes(cupdate, len(endBackfill))
+					// 	s.write(endBackfill, writer, id...)
+					// }
+					// confident = len(startBackfill) == 0 && len(endBackfill) == 0
+					confident = len(cupdate) == 0 // len(startBackfill) == 0 && len(endBackfill) == 0
+					if len(cupdate) > 0 {
+						s.write(cupdate, writer, id...)
 					}
-					endBackfill := s.missCheck('\n', noWriteDepth, s.EndToken, &ect, nil, id...)
-					if len(endBackfill) > 0 {
-						s.write(endBackfill, writer, id...)
-					}
-					confident = len(startBackfill) == 0 && len(endBackfill) == 0
 				} else {
 					if noWriteDepth > 0 {
 						skipped += 1
 					}
 					startBackfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &sct, &ect, id...)
 					if len(startBackfill) > 0 {
-
+						cupdate = removeLastIndexes(cupdate, len(startBackfill))
 						s.write(startBackfill, writer, id...)
 					}
 					endBackfill := s.missCheck(chunk[0], noWriteDepth, s.EndToken, &ect, &sct, id...)
 					if len(endBackfill) > 0 {
+						cupdate = removeLastIndexes(cupdate, len(endBackfill))
 						s.write(endBackfill, writer, id...)
 					}
 					if sct >= slen {
@@ -108,12 +115,16 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 					if ect >= elen {
 						ect = 0
 						noWriteDepth -= 1
-						if noWriteDepth <= 0 {
+						if noWriteDepth < 0 {
+							// Mismatched end to start, write end back, reduce cupdate
+							cupdate = removeLastIndexes(cupdate, elen-1)
+							s.writeS(s.EndToken, writer, id...)
+							noWriteDepth = 0
+						} else if noWriteDepth <= 0 {
 							skipped += slen
 							util.Debug("%d: replaced %d bytes", id, skipped)
 							s.writeS(s.Token, writer, id...)
 							cupdate = nil
-							noWriteDepth = 0
 						}
 					} else if noWriteDepth == 0 && sct == 0 && ect == 0 {
 						s.write(chunk, writer, id...)
@@ -124,9 +135,9 @@ func (s AllReplacer) replace(id ...int) (confident bool, err error) {
 				}
 				if byteCtr >= s.GoUntil {
 					util.Debug("%d: Hit end of byte duty", id)
-					startBackfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &sct, nil, id...)
-					endBackfill := s.missCheck(chunk[0], noWriteDepth, s.EndToken, &ect, nil, id...)
-					confident = len(startBackfill) == 0 && len(endBackfill) == 0
+					//startBackfill := s.missCheck(chunk[0], noWriteDepth, s.StartToken, &sct, nil, id...)
+					//endBackfill := s.missCheck(chunk[0], noWriteDepth, s.EndToken, &ect, nil, id...)
+					confident = len(cupdate) == 0 // len(startBackfill) == 0 && len(endBackfill) == 0
 					if len(cupdate) > 0 {
 						s.write(cupdate, writer, id...)
 					}
@@ -169,7 +180,7 @@ func (s AllReplacer) replaceSameStartEnd(id ...int) (confident bool, err error) 
 			util.Error("could not spawn a writer struct: %s", err)
 		} else {
 			rerr := s.fastForward(reader)
-			for ; rerr == nil; {
+			for rerr == nil {
 				var b int
 				b, rerr = reader.Read(chunk)
 				byteCtr += int64(b)
