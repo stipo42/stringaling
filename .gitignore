@@ -15,3 +15,9 @@
 .idea/
 *.iml
 *.xml
+*.txt
+
+strgr
+stringalinger
+
+test-data/
